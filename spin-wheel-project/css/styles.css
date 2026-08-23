@@ -143,7 +143,27 @@
     z-index:4;
   }
 
+  /* Wrapper around the spin button that hosts the tap-detection overlay.
+     Shrinks to the button's own size (inline-block) so the .app flexbox
+     centering behaves exactly as it did before the wrapper was added. */
+  .spin-hotzone{
+    position:relative;
+    display:inline-block;
+  }
+
+  /* Invisible overlay sitting exactly over the button. It always receives
+     taps -- even after the real button becomes disabled -- so the secret
+     5-tap counter in admin.js keeps working after a customer's first spin. */
+  .spin-hotzone #spinHotzoneOverlay{
+    position:absolute;
+    inset:0;
+    z-index:2;
+    cursor:pointer;
+    border-radius:999px;
+  }
+
   .spin-btn{
+    position:relative;
     font-family:'Fredoka',sans-serif;
     font-weight:600;
     font-size:19px;
