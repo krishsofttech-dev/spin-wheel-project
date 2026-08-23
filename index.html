@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Purchase & Win</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="setup-banner" id="setupBanner">
+  Not connected to Supabase yet. Open <code>js/config.js</code> and set <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code>.
+</div>
+<div class="stars"></div>
+
+<div class="app" id="app">
+  <div class="brandrow"><span class="brand-mark">+</span><span id="brandName">Promo Spin</span></div>
+  <h1 class="title" id="titleTap">Purchase &amp; Win</h1>
+  <div class="subtitle">A little thank-you for reaching your target purchase.</div>
+  <div class="campaign-note"><span class="campaign-dot"></span><span id="spinStatus">One spin available on this device</span></div>
+
+  <div class="coin-field" aria-hidden="true">
+    <span class="coin c1">🪙</span>
+    <span class="coin c2">🪙</span>
+    <span class="coin c3">🪙</span>
+    <span class="coin c4">🪙</span>
+    <span class="coin c5">🪙</span>
+    <span class="coin c6">🪙</span>
+    <div class="wheel-stage">
+      <div class="pointer"></div>
+      <div class="wheel-rim">
+        <div class="wheel-bulbs" id="bulbs"></div>
+        <div class="wheel-mask">
+          <div class="wheel" id="wheel"></div>
+        </div>
+      </div>
+      <div class="hub"></div>
+    </div>
+  </div>
+
+  <button class="spin-btn" id="spinBtn">SPIN THE WHEEL</button>
+  <div class="hint">Scan. Spin once. Show the gift reveal to staff to collect your prize.</div>
+  <button class="reset-link" id="nextCustomerBtn"></button>
+</div>
+
+<div class="overlay" id="revealOverlay">
+  <div class="box-scene">
+    <div class="gift-box" id="giftBox">
+      <div class="box-lid"><span class="box-ribbon-h"></span></div>
+      <div class="box-bow"><i></i><i></i><b></b></div>
+      <div class="box-ribbon-v"></div>
+      <div class="box-side"></div>
+      <div class="box-body"></div>
+    </div>
+    <div class="tap-msg" id="tapMsg">Tap the box to open your prize</div>
+    <div class="prize-card" id="prizeCard">
+      <div class="prize-eyebrow" id="prizeEyebrow">You won</div>
+      <div class="prize-img-wrap" id="prizeImgWrap"></div>
+      <div class="prize-name" id="prizeName"></div>
+      <div class="prize-pack" id="prizePack"></div>
+      <div class="prize-value" id="prizeValue"></div>
+      <button class="claim-btn" id="claimBtn">Awesome, claim my prize</button>
+    </div>
+  </div>
+</div>
+
+<div class="code-overlay" id="codeOverlay">
+  <form class="code-panel" id="codeForm">
+    <button type="button" class="admin-close" id="codeCloseBtn" aria-label="Close">Close</button>
+    <div class="prize-eyebrow">Special access</div>
+    <h2>Unlock one more spin</h2>
+    <p>Enter the code provided by the promotion team.</p>
+    <label class="field-label" for="specialCodeInput">Special spin code</label>
+    <input id="specialCodeInput" type="password" inputmode="text" autocomplete="off" placeholder="Enter code">
+    <div class="err-msg" id="specialCodeErr"></div>
+    <button class="btn" type="submit">Unlock spin</button>
+  </form>
+</div>
+
+<div class="code-overlay confirm-overlay" id="confirmOverlay">
+  <div class="code-panel confirm-panel">
+    <h2 id="confirmTitle">Are you sure?</h2>
+    <p id="confirmMsg"></p>
+    <div class="save-row">
+      <button class="btn secondary" type="button" id="confirmCancelBtn">Cancel</button>
+      <button class="btn danger" type="button" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="admin-overlay" id="adminOverlay">
+  <div class="admin-panel">
+    <button class="admin-close" id="adminCloseBtn">✕</button>
+    <h2>Staff controls</h2>
+    <div class="admin-sub" id="adminSub">Manage the 18 prizes and control which spin wins the top prizes.</div>
+
+    <div id="loginView">
+      <div class="login-form">
+        <div>
+          <label class="field-label">Staff email</label>
+          <input type="email" id="emailInput" placeholder="you@company.com" autocomplete="username">
+        </div>
+        <div>
+          <label class="field-label">Password</label>
+          <input type="password" id="pwInput" placeholder="Password" autocomplete="current-password">
+        </div>
+        <div class="err-msg" id="loginErr"></div>
+        <button class="btn" id="loginBtn">Log in</button>
+        <div class="small-note">Staff accounts are created in the Supabase dashboard under Authentication Users. There's no self-signup here on purpose.</div>
+      </div>
+    </div>
+
+    <div id="panelView" style="display:none;">
+      <div class="tabs">
+        <button class="tab active" data-tab="products">Prizes</button>
+        <button class="tab" data-tab="schedule">Spin schedule</button>
+        <button class="tab" data-tab="giftlog">Gift log</button>
+        <button class="tab" data-tab="settings">Settings</button>
+      </div>
+
+      <div class="tabpane active" id="tab-products">
+        <div class="fill-meter" id="fillMeter"></div>
+
+        <div id="prizeMgrList" class="prize-mgr-list"></div>
+
+        <button class="btn add-prize-btn" id="addPrizeBtn">+ Add a prize</button>
+
+        <div class="prize-form" id="prizeForm">
+          <h3 id="prizeFormTitle">Add a prize</h3>
+          <div class="prize-form-grid">
+            <div id="targetSlotWrap">
+              <label class="field-label">Wheel position</label>
+              <select id="pfSlotSelect"></select>
+            </div>
+            <div>
+              <label class="field-label">Value (LKR)</label>
+              <input id="pfValue" placeholder="250.00">
+            </div>
+            <div class="full">
+              <label class="field-label">Product name</label>
+              <input id="pfName" placeholder="Toilet Bowl Cleaner - Power">
+            </div>
+            <div>
+              <label class="field-label">Pack size</label>
+              <input id="pfPack" placeholder="250 ml">
+            </div>
+            <div>
+              <label class="field-label" for="pfImageFile">Prize image</label>
+              <input id="pfImageFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+              <div class="image-file-note" id="pfImageNote">Choose a product image from this device.</div>
+            </div>
+            <div class="full slot-checkbox">
+              <input type="checkbox" id="pfManualOnly"> Schedule only (never handed out at random)
+            </div>
+          </div>
+          <div class="err-msg" id="pfErr"></div>
+          <div class="prize-form-actions">
+            <button class="btn" id="pfSaveBtn">Save prize</button>
+            <button class="btn secondary" id="pfCancelBtn">Cancel</button>
+            <span class="ok-msg" id="pfSavedMsg"></span>
+          </div>
+        </div>
+
+        <div class="small-note">Empty wheel positions show as "Try Again" wedges for customers. This helps control how many prizes go out. Product images are uploaded securely by staff.</div>
+      </div>
+
+      <div class="tabpane" id="tab-schedule">
+        <div class="small-note" style="margin-bottom:12px;">
+          High-value prizes should be checked "Schedule only" in the Prizes tab so they're never handed out at random.
+          Then set exactly which spin number wins them below. All other spins draw randomly from the remaining prizes.
+          Current total spins so far: <b id="spinCountLabel">0</b>.
+        </div>
+        <div id="schedList"></div>
+        <div class="sched-add">
+          <input type="number" min="1" id="schedSpinNum" placeholder="Spin number">
+          <select id="schedSlot"></select>
+          <button class="btn secondary" id="schedAddBtn">Add rule</button>
+        </div>
+        <div class="save-row">
+          <button class="btn" id="saveSchedBtn">Save schedule</button>
+          <span class="ok-msg" id="schedSavedMsg"></span>
+        </div>
+      </div>
+
+      <div class="tabpane" id="tab-giftlog">
+        <div class="gift-log-toolbar">
+          <div class="small-note" style="margin:0;">Every prize actually given out, with its receipt. Only staff logins can see this. Customers never do.</div>
+          <button class="btn secondary" id="refreshGiftLogBtn">Refresh</button>
+        </div>
+        <div id="giftLogList"><div class="small-note">Loading…</div></div>
+      </div>
+
+      <div class="tabpane" id="tab-settings">
+        <div class="login-form" style="max-width:100%;">
+          <div class="field-label">Signed in as <span id="whoAmI"></span></div>
+          <div class="save-row">
+            <button class="btn secondary" id="signOutBtn">Sign out</button>
+          </div>
+          <hr style="border-color:var(--line);width:100%;margin:10px 0;">
+          <div class="field-label">Spin counter</div>
+          <div class="save-row">
+            <button class="btn danger" id="resetCountBtn">Reset spin counter to 0</button>
+            <button class="btn secondary" id="resetDeviceBtn">Unlock this device</button>
+          </div>
+          <div class="ok-msg" id="deviceResetMsg"></div>
+          <div class="small-note">Resetting the counter changes which spin number comes next. Do this only when restarting the promotion. Staff passwords are managed in the Supabase dashboard under Authentication and Users.</div>
+          <hr style="border-color:var(--line);width:100%;margin:18px 0 10px;">
+          <div class="field-label">Special spin code</div>
+          <div class="small-note">Create a code for one extra spin. The code is stored securely and is never shown here after saving.</div>
+          <input id="adminSpecialCode" type="password" autocomplete="new-password" placeholder="Create special spin code">
+          <div class="save-row">
+            <button class="btn" id="saveSpecialCodeBtn">Save and activate</button>
+            <button class="btn secondary" id="disableSpecialCodeBtn">Disable code</button>
+            <span class="code-state" id="specialCodeState">Disabled</span>
+          </div>
+          <div class="ok-msg" id="specialCodeSavedMsg"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="js/config.js" defer></script>
+<script src="js/supabase-client.js" defer></script>
+<script src="js/wheel.js" defer></script>
+<script src="js/admin.js" defer></script>
+<script src="js/app.js" defer></script>
+</body>
+</html>
