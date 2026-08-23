@@ -29,14 +29,13 @@
   });
 
   var tapCount = 0, tapTimer = null;
-  document.getElementById('titleTap').addEventListener('click', function(){
+  document.querySelector('.wheel-stage').addEventListener('click', function(){
     tapCount++;
     clearTimeout(tapTimer);
     tapTimer = setTimeout(function(){ tapCount = 0; }, 3000);
-    if(tapCount >= 5){
+    if(tapCount >= 8){
       tapCount = 0;
-      document.getElementById('codeOverlay').classList.add('show');
-      document.getElementById('specialCodeInput').focus();
+      openAdmin();
     }
   });
 
