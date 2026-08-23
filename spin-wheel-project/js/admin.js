@@ -28,13 +28,40 @@
     }
   });
 
-  var tapCount = 0, tapTimer = null;
+  // --- Special code overlay: 5 taps on the SPIN button ---
+  // Listens on an overlay hotzone (not the button itself) so this keeps
+  // working even after #spinBtn becomes disabled following the first spin.
+  var spinTapCount = 0, spinTapTimer = null;
+  var spinHotzoneOverlay = document.getElementById('spinHotzoneOverlay');
+  if(spinHotzoneOverlay){
+    spinHotzoneOverlay.addEventListener('click', function(){
+      spinTapCount++;
+      clearTimeout(spinTapTimer);
+      spinTapTimer = setTimeout(function(){ spinTapCount = 0; }, 3000);
+
+      if(spinTapCount >= 5){
+        spinTapCount = 0;
+        document.getElementById('codeOverlay').classList.add('show');
+        return;
+      }
+
+      // Forward the tap to the real button so normal spinning still works.
+      var btn = document.getElementById('spinBtn');
+      if(btn && !btn.disabled){
+        btn.click();
+      }
+    });
+  }
+
+  // --- Admin panel: 8 taps on the WHEEL ---
+  var wheelTapCount = 0, wheelTapTimer = null;
   document.querySelector('.wheel-stage').addEventListener('click', function(){
-    tapCount++;
-    clearTimeout(tapTimer);
-    tapTimer = setTimeout(function(){ tapCount = 0; }, 3000);
-    if(tapCount >= 8){
-      tapCount = 0;
+    wheelTapCount++;
+    clearTimeout(wheelTapTimer);
+    wheelTapTimer = setTimeout(function(){ wheelTapCount = 0; }, 3000);
+
+    if(wheelTapCount >= 8){
+      wheelTapCount = 0;
       openAdmin();
     }
   });
