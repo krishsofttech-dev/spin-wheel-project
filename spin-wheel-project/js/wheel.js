@@ -5,7 +5,7 @@
   var bulbsEl = document.getElementById('bulbs');
   var currentRotation = 0;
   var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var spinUsedKey = 'promo-spin-used';
+  var spinCountKey = 'promo-spin-count';
   var specialSpinUsedKey = 'promo-special-spin-used';
   var deviceTokenKey = 'promo-device-token';
 
@@ -24,14 +24,51 @@
     localStorage.setItem(deviceTokenKey, deviceToken);
   }
 
+  // The server (get_wheel_client_state / spin_wheel) is the real source of
+  // truth for how many spins this device has left - localStorage here is
+  // only used as an immediate offline-friendly fallback before that first
+  // round-trip resolves, and while Supabase isn't configured at all.
+  App.syncDeviceSpinState = async function(){
+    if(!App.sb){
+      App.state.maxSpinsPerDevice = 1;
+      App.state.spinsUsed = parseInt(localStorage.getItem(spinCountKey) || '0', 10);
+      App.state.specialSpinUsed = localStorage.getItem(specialSpinUsedKey) === '1';
+      App.state.spinRotations = 6;
+      return;
+    }
+    var res = await App.sb.rpc('get_wheel_client_state', { p_device_token: deviceToken });
+    if(!res.error && res.data && res.data.length){
+      var row = res.data[0];
+      App.state.maxSpinsPerDevice = row.max_spins_per_device || 1;
+      App.state.spinsUsed = row.spins_used || 0;
+      App.state.specialSpinUsed = !!row.special_spin_used;
+      App.state.spinRotations = row.spin_rotations || 6;
+    } else {
+      App.state.maxSpinsPerDevice = 1;
+      App.state.spinsUsed = parseInt(localStorage.getItem(spinCountKey) || '0', 10);
+      App.state.specialSpinUsed = localStorage.getItem(specialSpinUsedKey) === '1';
+      App.state.spinRotations = 6;
+    }
+  };
+
   App.refreshSpinAvailability = function(){
-    App.state.spinUsed = localStorage.getItem(spinUsedKey) === '1';
-    App.state.specialSpinUsed = localStorage.getItem(specialSpinUsedKey) === '1';
+    var max = App.state.maxSpinsPerDevice || 1;
+    var used = App.state.spinsUsed || 0;
+    var hasSpecialPending = !!App.state.pendingSpecialCode && !App.state.specialSpinUsed;
+    App.state.spinUsed = (used >= max) && !hasSpecialPending;
     var button = document.getElementById('spinBtn');
     var status = document.getElementById('spinStatus');
     if(button && !App.state.spinning) button.disabled = App.state.spinUsed;
     if(status){
-      status.textContent = App.state.spinUsed ? 'This device has already spun' : 'One spin available on this device';
+      if(hasSpecialPending){
+        status.textContent = 'Bonus spin unlocked';
+      } else if(App.state.spinUsed){
+        status.textContent = 'This device has already spun';
+      } else if(max > 1){
+        status.textContent = (max - used) + ' of ' + max + ' spins left on this device';
+      } else {
+        status.textContent = 'One spin available on this device';
+      }
       status.parentElement.classList.toggle('used', App.state.spinUsed);
     }
   };
@@ -49,21 +86,20 @@
       var matches = !!(row && row.active && row.code && row.code === entered);
       if(!matches) return false;
       App.state.pendingSpecialCode = entered;
-      localStorage.removeItem(spinUsedKey);
       App.refreshSpinAvailability();
       return true;
     });
   };
 
   App.resetDeviceSpin = function(){
-    localStorage.removeItem(spinUsedKey);
+    localStorage.removeItem(spinCountKey);
     localStorage.removeItem(specialSpinUsedKey);
     App.state.pendingSpecialCode = null;
     // Issue a fresh device token so the next customer on this same kiosk
     // isn't blocked by the previous customer's server-side spin record.
     deviceToken = newDeviceToken();
     localStorage.setItem(deviceTokenKey, deviceToken);
-    App.refreshSpinAvailability();
+    App.syncDeviceSpinState().then(App.refreshSpinAvailability);
   };
 
   App.renderWheel = function(){
@@ -82,18 +118,42 @@
       var label = document.createElement('div');
       label.className = 'slice-label';
       label.style.transform = 'rotate(' + centerAngle + 'deg)';
-      var span = document.createElement('span');
+
       var isCream = (j % 2 === 1);
-      span.style.color = isCream ? '#B32639' : '#FBF3E3';
+      var textColor = isCream ? '#B32639' : '#FBF3E3';
+
+      var imgWrap = document.createElement('div');
+      imgWrap.className = 'slice-img-wrap';
+
+      var textWrap = document.createElement('div');
+      textWrap.className = 'slice-text';
+      var span = document.createElement('span');
+      span.style.color = textColor;
+
       var slot = slots[j] || {};
       if(slot.active){
-        var v = slot.value ? ("LKR " + String(slot.value).replace(/\.00$/,'')) : 'LKR 0';
-        span.textContent = v;
+        if(slot.image_url){
+          var img = document.createElement('img');
+          img.src = slot.image_url;
+          img.alt = slot.name || '';
+          imgWrap.appendChild(img);
+        } else {
+          imgWrap.innerHTML = '<span class="slice-emoji">🎁</span>';
+        }
+        var wheelText = slot.name ? String(slot.name).replace(/\s*[-–]\s*/g, ' ').trim() : (slot.value ? ("LKR " + String(slot.value).replace(/\.00$/,'')) : '');
+        if(wheelText.length > 14){
+          wheelText = wheelText.slice(0, 13).trim() + '…';
+        }
+        span.textContent = wheelText;
       } else {
         label.classList.add('no-prize');
+        imgWrap.innerHTML = '<span class="slice-emoji">😕</span>';
         span.textContent = 'Try Again';
       }
-      label.appendChild(span);
+
+      textWrap.appendChild(span);
+      label.appendChild(imgWrap);
+      label.appendChild(textWrap);
       wheelEl.appendChild(label);
     }
 
@@ -108,6 +168,19 @@
     }
   };
 
+  App.preloadSlotImages = function(){
+    var urls = App.state.slots
+      .map(function(slot){ return slot.image_url; })
+      .filter(function(url, index, all){ return url && all.indexOf(url) === index; });
+    return Promise.all(urls.map(function(url){
+      return new Promise(function(resolve){
+        var img = new Image();
+        img.onload = img.onerror = resolve;
+        img.src = url;
+      });
+    }));
+  };
+
   function indexForSlotId(slotId){
     for(var i=0;i<App.state.slots.length;i++){ if(App.state.slots[i].id === slotId) return i; }
     return 0;
@@ -119,12 +192,17 @@
     var jitter = (Math.random()*sliceDeg*0.5) - (sliceDeg*0.25);
     var targetWithinCircle = ((360 - sliceCenter + jitter) % 360 + 360) % 360;
 
-    var extraSpins = reducedMotion ? 1 : (6 + Math.floor(Math.random()*3));
+    // How many full rotations the wheel makes before it starts landing on
+    // the result - set by staff in Settings > "Wheel spins before landing".
+    var extraSpins = reducedMotion ? 1 : (App.state.spinRotations || 6);
     var currentMod = ((currentRotation % 360) + 360) % 360;
     var deltaToTarget = ((targetWithinCircle - currentMod) % 360 + 360) % 360;
     var totalDelta = extraSpins*360 + deltaToTarget;
 
-    var durationMs = reducedMotion ? 650 : 5200;
+    // Scale how long the animation takes with how many rotations it has
+    // to cover, so a 2-rotation spin doesn't crawl and a 10-rotation spin
+    // doesn't feel instant.
+    var durationMs = reducedMotion ? 650 : Math.max(1800, extraSpins*700 + 800);
     currentRotation += totalDelta;
     wheelEl.style.transition = 'transform ' + (durationMs/1000) + 's cubic-bezier(.15,.65,.15,1)';
     wheelEl.style.transform = 'rotate(' + currentRotation + 'deg)';
@@ -139,34 +217,47 @@
     document.getElementById('spinBtn').disabled = true;
 
     var specialCode = App.state.pendingSpecialCode || null;
-    var res = await App.sb.rpc('spin_wheel', {
-      p_device_token: deviceToken,
-      p_special_code: specialCode
-    });
+    var res;
+    try {
+      res = await App.sb.rpc('spin_wheel', {
+        p_device_token: deviceToken,
+        p_special_code: specialCode
+      });
+    } catch(e) {
+      res = { error: e };
+    }
 
     if(res.error || !res.data || res.data.length === 0){
       App.state.spinning = false;
-      document.getElementById('spinBtn').disabled = false;
+      var reason = (res.error && res.error.message) || '';
+      if(res.error) console.error('spin_wheel failed:', res.error);
       if(specialCode){
         // The code didn't hold up server-side (already used on this
         // device, or deactivated since it was entered) - restore the
         // normal "already spun" state rather than leaving the button
         // enabled indefinitely.
         App.state.pendingSpecialCode = null;
-        localStorage.setItem(spinUsedKey, '1');
+        App.state.specialSpinUsed = reason.indexOf('special_code_already_used') !== -1;
         App.refreshSpinAvailability();
         alert('That code is no longer valid. Please check with staff.');
+      } else if(reason.indexOf('device_spin_limit_reached') !== -1){
+        App.state.spinsUsed = App.state.maxSpinsPerDevice || 1;
+        App.refreshSpinAvailability();
+        alert('No spins left on this device.');
       } else {
-        alert('Could not spin right now. Please try again.');
+        document.getElementById('spinBtn').disabled = App.state.spinUsed;
+        alert('Could not spin right now. Please try again.' + (reason ? '\n\nServer: ' + reason : ''));
       }
       return;
     }
 
     if(specialCode){
       App.state.pendingSpecialCode = null;
+      App.state.specialSpinUsed = true;
       localStorage.setItem(specialSpinUsedKey, '1');
     } else {
-      localStorage.setItem(spinUsedKey, '1');
+      App.state.spinsUsed = (App.state.spinsUsed || 0) + 1;
+      localStorage.setItem(spinCountKey, String(App.state.spinsUsed));
     }
     App.refreshSpinAvailability();
     var win = res.data[0];
@@ -179,9 +270,10 @@
     animateToIndex(winIndex, function(){
       showPrize(winSlot);
       App.state.spinning = false;
-      if(winSlot.active){
-        generateAndUploadReceipt(win, winSlot);
-      }
+      // PDF receipts disabled - use Records PDF feature instead
+      // if(winSlot.active){
+      //   generateAndUploadReceipt(win, winSlot);
+      // }
     });
   }
 
@@ -202,7 +294,14 @@
   async function generateAndUploadReceipt(win, winSlot){
     try{
       var jsPDFCtor = await loadJsPDF();
-      if(!jsPDFCtor || !App.sb) return;
+      if(!jsPDFCtor){
+        console.warn('jsPDF library failed to load');
+        return;
+      }
+      if(!App.sb){
+        console.warn('Supabase not configured');
+        return;
+      }
       var doc = new jsPDFCtor();
       var now = new Date();
       doc.setFontSize(18); doc.text('Gift Receipt', 20, 22);
@@ -217,10 +316,17 @@
       var blob = doc.output('blob');
       var path = 'receipts/' + win.out_gift_id + '.pdf';
       var upload = await App.sb.storage.from('gift-receipts').upload(path, blob, { contentType: 'application/pdf' });
-      if(!upload.error){
-        await App.sb.rpc('attach_gift_pdf', { p_gift_id: win.out_gift_id, p_pdf_path: path });
+      if(upload.error){
+        console.error('PDF upload failed:', upload.error);
+        return;
       }
-    }catch(e){}
+      var rpcRes = await App.sb.rpc('attach_gift_pdf', { p_gift_id: win.out_gift_id, p_pdf_path: path });
+      if(rpcRes.error){
+        console.error('RPC attach_gift_pdf failed:', rpcRes.error);
+      }
+    }catch(e){
+      console.error('Receipt generation error:', e);
+    }
   }
 
   var revealOverlay = document.getElementById('revealOverlay');
@@ -253,7 +359,6 @@
         var img = document.createElement('img');
         img.src = slot.image_url;
         img.alt = slot.name || 'Prize';
-        img.loading = 'lazy';
         imgWrap.appendChild(img);
       } else {
         imgWrap.innerHTML = '<span style="font-size:44px;">🎁</span>';
@@ -310,5 +415,8 @@
     if(!App.state.isAdmin){ return; }
     App.resetDeviceSpin();
   });
+  // Show a sane default immediately; app.js calls syncDeviceSpinState()
+  // during boot and refreshes this again once the real server state (and
+  // the admin-configured max spins per device) has loaded.
   App.refreshSpinAvailability();
 })();
