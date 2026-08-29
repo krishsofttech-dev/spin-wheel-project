@@ -12,7 +12,7 @@
     if(banner) banner.classList.add('show');
   }
 
-  App.SLOT_COUNT = 18;
+  App.SLOT_COUNT = 12;
   App.COLORS = ["#E4384B", "#FBF3E3"];
 
  App.state = {
@@ -24,7 +24,10 @@
   spinUsed: false,
   specialSpinUsed: false,
   pendingSpecialCode: null,
-  specialCode: { active: false }
+  specialCode: { active: false },
+  maxSpinsPerDevice: 1,
+  spinsUsed: 0,
+  spinRotations: 6
 };
 
   App.slotById = function(id){
@@ -39,9 +42,9 @@
   App.defaultSlotsFallback = function(){
     var arr = [];
     for(var i=0;i<App.SLOT_COUNT;i++){
-      arr.push({ id:i, name: "", pack: "", value: "0.00", image_url: "", manual_only: false, active: false });
+      arr.push({ id:i, name: "", pack: "", value: "0.00", image_url: "", manual_only: false, disabled: false, active: false });
     }
-    arr[0] = { id:0, name:"Toilet Bowl Cleaner - Power", pack:"250 ml", value:"250.00", image_url:"", manual_only:true, active:true };
+    arr[0] = { id:0, name:"Toilet Bowl Cleaner - Power", pack:"250 ml", value:"250.00", image_url:"", manual_only:true, disabled:false, active:true };
     return arr;
   };
 
@@ -56,12 +59,12 @@
   };
 
   App.loadSettings = async function(){
-    if(!App.sb || !App.state.isAdmin){ App.state.settings = { spin_count: 0, overrides: {} }; return; }
+    if(!App.sb || !App.state.isAdmin){ App.state.settings = { spin_count: 0, overrides: {}, max_spins_per_device: 1, spin_rotations: 6 }; return; }
     var res = await App.sb.from('wheel_settings').select('*').eq('id', 1).single();
     if(!res.error && res.data){
       App.state.settings = res.data;
     } else {
-      App.state.settings = { spin_count: 0, overrides: {} };
+      App.state.settings = { spin_count: 0, overrides: {}, max_spins_per_device: 1, spin_rotations: 6 };
     }
   };
 
