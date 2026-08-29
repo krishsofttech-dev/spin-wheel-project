@@ -124,6 +124,7 @@
     renderPrizeManager();
     renderScheduleAdmin();
     renderSpecialCodeSettings();
+    renderMaxSpinsAdmin();
     loadGiftLog();
   }
 
@@ -140,7 +141,7 @@
   var editingIndex = null;
 
   function emptySlotDefaults(id){
-    return { id: id, name: '', pack: '', value: '0.00', image_url: '', manual_only: false, active: false };
+    return { id: id, name: '', pack: '', value: '0.00', image_url: '', manual_only: false, disabled: false, active: false };
   }
 
   function renderPrizeManager(){
@@ -160,13 +161,13 @@
       var card = document.createElement('div');
       card.className = 'prize-mgr-card';
       var thumb = slot.image_url
-        ? '<img src="' + App.escapeAttr(slot.image_url) + '" alt="" loading="lazy">'
+          ? '<img src="' + App.escapeAttr(slot.image_url) + '" alt="">'
         : '🎁';
       card.innerHTML =
         '<div class="prize-mgr-thumb">' + thumb + '</div>' +
         '<div class="prize-mgr-info">' +
           '<div class="pmi-name">' + App.escapeAttr(slot.name || 'Untitled prize') + '</div>' +
-          '<div class="pmi-meta">Position ' + (idx+1) + ' value LKR ' + App.escapeAttr(slot.value || '0.00') + (slot.pack ? ' pack ' + App.escapeAttr(slot.pack) : '') + (slot.manual_only ? ' schedule only' : '') + '</div>' +
+          '<div class="pmi-meta">Position ' + (idx+1) + ' value LKR ' + App.escapeAttr(slot.value || '0.00') + (slot.pack ? ' pack ' + App.escapeAttr(slot.pack) : '') + (slot.manual_only ? ' schedule only' : '') + (slot.disabled ? ' disabled' : '') + '</div>' +
         '</div>' +
         '<div class="prize-mgr-actions">' +
           '<button class="icon-btn" data-edit="' + idx + '">Edit</button>' +
@@ -238,7 +239,7 @@
       var emptyIdxs = [];
       App.state.slots.forEach(function(slot, i){ if(!slot.active) emptyIdxs.push(i); });
       if(emptyIdxs.length === 0){
-        errEl.textContent = 'All 18 wheel positions are full. Delete a prize first to add a new one.';
+        errEl.textContent = 'All ' + App.SLOT_COUNT + ' wheel positions are full. Delete a prize first to add a new one.';
         return;
       }
       document.getElementById('prizeFormTitle').textContent = 'Add a prize';
@@ -257,6 +258,7 @@
       document.getElementById('pfImageFile').value = '';
       document.getElementById('pfImageNote').textContent = 'Choose a product image from this device.';
       document.getElementById('pfManualOnly').checked = false;
+      document.getElementById('pfDisabled').checked = false;
     } else {
       var slot = App.state.slots[idx];
       document.getElementById('prizeFormTitle').textContent = 'Edit prize';
@@ -267,6 +269,7 @@
       document.getElementById('pfImageFile').value = '';
       document.getElementById('pfImageNote').textContent = slot.image_url ? 'Existing image will be kept unless you choose a new file.' : 'Choose a product image from this device.';
       document.getElementById('pfManualOnly').checked = !!slot.manual_only;
+      document.getElementById('pfDisabled').checked = !!slot.disabled;
     }
 
     prizeForm.classList.add('show');
@@ -284,6 +287,7 @@
     var value = document.getElementById('pfValue').value.trim();
     var imageFile = document.getElementById('pfImageFile').files[0];
     var manual_only = document.getElementById('pfManualOnly').checked;
+    var disabled = document.getElementById('pfDisabled').checked;
 
     if(!name){ errEl.textContent = 'Enter a product name.'; return; }
     if(!value || isNaN(parseFloat(value))){ errEl.textContent = 'Enter a numeric value, e.g. 250.00'; return; }
@@ -307,7 +311,7 @@
       image_url = App.sb.storage.from('prize-images').getPublicUrl(imagePath).data.publicUrl;
     }
     errEl.textContent = '';
-    var updated = { id: slotId, name: name, pack: pack, value: value, image_url: image_url, manual_only: manual_only, active: true };
+    var updated = { id: slotId, name: name, pack: pack, value: value, image_url: image_url, manual_only: manual_only, disabled: disabled, active: true };
 
     if(App.sb){
       var res = await App.sb.from('wheel_slots').update(updated).eq('id', slotId);
@@ -399,30 +403,335 @@ document.getElementById('schedSlot').addEventListener('focus', function(){
     }
     if(!res.data || res.data.length === 0){
       list.innerHTML = '<div class="small-note">No prizes given out yet.</div>';
+      document.getElementById('giftLogActions').style.display = 'none';
+      document.getElementById('selectAllGifts').checked = false;
       return;
     }
     list.innerHTML = '';
+    document.getElementById('giftLogActions').style.display = 'flex';
+    document.getElementById('selectAllGifts').checked = false;
     res.data.forEach(function(g){
       var row = document.createElement('div');
       row.className = 'gift-row';
+      row.dataset.giftId = g.id;
       var d = new Date(g.created_at);
       row.innerHTML =
+        '<input type="checkbox" class="gift-checkbox" data-gift-id="' + g.id + '">' +
         '<div class="g-date">' + d.toLocaleString() + '</div>' +
         '<div class="g-main"><b>Spin ' + g.spin_number + '</b> ' + App.escapeAttr(g.product_name) + (g.pack ? ' (' + App.escapeAttr(g.pack) + ')' : '') + '</div>' +
         '<div class="g-value">LKR ' + (g.value || '0.00') + '</div>' +
-        '<button class="btn secondary" data-receipt="' + g.pdf_path + '">Receipt</button>';
+        '<button class="btn secondary" data-gift-id="' + g.id + '" title="Delete this log">Delete</button>';
       list.appendChild(row);
     });
   }
   document.getElementById('giftLogList').addEventListener('click', async function(e){
-    var path = e.target.dataset.receipt;
-    if(!path || path === 'null' || path === 'undefined') return;
-    var res = await App.sb.storage.from('gift-receipts').createSignedUrl(path, 60);
-    if(!res.error && res.data){
-      window.open(res.data.signedUrl, '_blank');
+    var giftId = e.target.dataset.giftId;
+    if(giftId && e.target.textContent === 'Delete'){
+      if(!confirm('Delete this gift log entry?')) return;
+      var res = await App.sb.from('gift_log').delete().eq('id', giftId);
+      if(!res.error){
+        loadGiftLog();
+      } else {
+        alert('Error deleting log: ' + res.error.message);
+      }
     }
   });
+  
+  document.getElementById('selectAllGifts').addEventListener('change', function(){
+    var checkboxes = document.querySelectorAll('.gift-checkbox');
+    checkboxes.forEach(function(cb){ cb.checked = this.checked; }, this);
+  });
+  
+  document.getElementById('deleteSelectedGiftsBtn').addEventListener('click', async function(){
+    var checkboxes = document.querySelectorAll('.gift-checkbox:checked');
+    if(checkboxes.length === 0){
+      alert('Please select at least one gift log to delete.');
+      return;
+    }
+    if(!confirm('Delete ' + checkboxes.length + ' gift log entries? This cannot be undone.')) return;
+    
+    var ids = Array.from(checkboxes).map(function(cb){ return cb.dataset.giftId; });
+    var res = await App.sb.from('gift_log').delete().in('id', ids);
+    if(!res.error){
+      loadGiftLog();
+    } else {
+      alert('Error deleting logs: ' + res.error.message);
+    }
+  });
+  
   document.getElementById('refreshGiftLogBtn').addEventListener('click', loadGiftLog);
+
+  var recordsOverlay = document.getElementById('recordsOverlay');
+  document.getElementById('recordsBtn').addEventListener('click', function(){
+    var today = new Date();
+    var firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    document.getElementById('recordsFromDate').valueAsDate = firstDay;
+    document.getElementById('recordsToDate').valueAsDate = today;
+    recordsOverlay.classList.add('show');
+  });
+  
+  document.getElementById('recordsCloseBtn').addEventListener('click', function(){
+    recordsOverlay.classList.remove('show');
+  });
+  
+  document.getElementById('recordsCancelBtn').addEventListener('click', function(){
+    recordsOverlay.classList.remove('show');
+  });
+  
+  document.getElementById('recordsGenerateBtn').addEventListener('click', async function(){
+    var fromDate = new Date(document.getElementById('recordsFromDate').value + 'T00:00:00Z');
+    var toDate = new Date(document.getElementById('recordsToDate').value + 'T23:59:59Z');
+    
+    if(!App.sb) return alert('Not connected to database');
+    
+    var res = await App.sb.from('gift_log')
+      .select('*')
+      .gte('created_at', fromDate.toISOString())
+      .lte('created_at', toDate.toISOString())
+      .order('created_at', { ascending: false });
+    
+    if(res.error || !res.data || res.data.length === 0){
+      alert('No records found for this date range');
+      return;
+    }
+    
+    await loadJsPDFLibrary();
+    generateGiftRecordsPDF(res.data, fromDate, toDate);
+    recordsOverlay.classList.remove('show');
+  });
+  
+  function loadJsPDFLibrary(){
+    return new Promise(function(resolve){
+      if(window.jspdf && window.jspdf.jsPDF){
+        resolve();
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = function(){ resolve(); };
+      s.onerror = function(){ resolve(); };
+      document.head.appendChild(s);
+    });
+  }
+  
+  function generateGiftRecordsPDF(records, fromDate, toDate){
+    try{
+      if(!window.jspdf || !window.jspdf.jsPDF){
+        alert('PDF library not loaded. Please try again.');
+        return;
+      }
+      
+      var jsPDFCtor = window.jspdf.jsPDF;
+      var doc = new jsPDFCtor('p', 'mm', 'a4');
+      var pageHeight = doc.internal.pageSize.getHeight();
+      var pageWidth = doc.internal.pageSize.getWidth();
+      
+      // Colors
+      var headerBg = [102, 51, 153]; // Purple
+      var headerText = [255, 255, 255]; // White
+      var altRowBg = [240, 240, 240]; // Light gray
+      var borderColor = [150, 150, 150]; // Gray
+      
+      // Margins and layout
+      var leftMargin = 12;
+      var rightMargin = pageWidth - 12;
+      var contentWidth = rightMargin - leftMargin;
+      var startY = 12;
+      
+      // Load and add logo
+      var img = new Image();
+      img.src = 'Images/logo.png';
+      img.onload = function(){
+        var y = startY;
+        
+        // Header section with logo and company name
+        try{
+          doc.addImage(img, 'PNG', leftMargin, y, 12, 12);
+        }catch(e){
+          // Logo loading failed, continue without it
+        }
+        
+        doc.setFontSize(14);
+        doc.setFont(undefined, 'bold');
+        doc.setTextColor(102, 51, 153); // Purple
+        doc.text('RAINBOW SOLUTIONS', leftMargin + 15, y + 4);
+        
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(0, 0, 0);
+        doc.text('Gift Rewards Report', leftMargin + 15, y + 9);
+        
+        y += 18;
+        
+        // Horizontal line
+        doc.setDrawColor(102, 51, 153);
+        doc.setLineWidth(0.5);
+        doc.line(leftMargin, y, rightMargin, y);
+        y += 3;
+        
+        // Report info
+        doc.setFontSize(9);
+        var dateRange = fromDate.toLocaleDateString() + ' to ' + toDate.toLocaleDateString();
+        var infoText = 'Report Period: ' + dateRange + ' | Total Rewards: ' + records.length;
+        doc.text(infoText, leftMargin, y);
+        y += 6;
+        
+        // Table setup
+        var col1Width = 28; // Date/Time
+        var col2Width = 12; // Spin#
+        var col3Width = 50; // Product
+        var col4Width = 30; // Price
+        var rowHeight = 6;
+        
+        // Prepare table data
+        var tableData = [];
+        var totalValue = 0;
+        
+        records.forEach(function(g){
+          var d = new Date(g.created_at);
+          var dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString().substring(0, 5);
+          var spinNum = g.spin_number || '-';
+          var product = (g.product_name || 'N/A') + (g.pack ? ' (' + g.pack + ')' : '');
+          var price = parseFloat(g.value || 0).toFixed(2);
+          
+          tableData.push({
+            date: dateStr,
+            spin: String(spinNum),
+            product: product,
+            price: price
+          });
+          
+          totalValue += parseFloat(g.value) || 0;
+        });
+        
+        // Draw table
+        drawTable(doc, tableData, totalValue, y, leftMargin, col1Width, col2Width, col3Width, col4Width, rowHeight, pageHeight, pageWidth);
+        
+        // Save PDF
+        var filename = 'gift-records-' + fromDate.toISOString().split('T')[0] + '.pdf';
+        doc.save(filename);
+      };
+      
+      function drawTable(doc, tableData, totalValue, startY, leftMargin, col1, col2, col3, col4, rowHeight, pageHeight, pageWidth){
+        var rightMargin = pageWidth - 12;
+        var y = startY;
+        var rowCount = 0;
+        var headerBg = [102, 51, 153];
+        var headerText = [255, 255, 255];
+        var altRowBg = [240, 240, 240];
+        var borderColor = [150, 150, 150];
+        
+        // Header row
+        doc.setFillColor(headerBg[0], headerBg[1], headerBg[2]);
+        doc.rect(leftMargin, y, col1 + col2 + col3 + col4, rowHeight, 'F');
+        
+        doc.setTextColor(headerText[0], headerText[1], headerText[2]);
+        doc.setFont(undefined, 'bold');
+        doc.setFontSize(8);
+        doc.text('Date / Time', leftMargin + 1, y + 4);
+        doc.text('Spin #', leftMargin + col1 + 1, y + 4);
+        doc.text('Product Name', leftMargin + col1 + col2 + 1, y + 4);
+        doc.text('Price (LKR)', leftMargin + col1 + col2 + col3 + 1, y + 4);
+        
+        y += rowHeight;
+        
+        // Data rows
+        doc.setTextColor(0, 0, 0);
+        doc.setFont(undefined, 'normal');
+        doc.setFontSize(7);
+        
+        tableData.forEach(function(row, idx){
+          // Check if we need new page
+          if(y + rowHeight > pageHeight - 15){
+            doc.addPage();
+            y = 15;
+            rowCount = 0;
+            
+            // Repeat header on new page
+            doc.setFillColor(headerBg[0], headerBg[1], headerBg[2]);
+            doc.rect(leftMargin, y, col1 + col2 + col3 + col4, rowHeight, 'F');
+            
+            doc.setTextColor(headerText[0], headerText[1], headerText[2]);
+            doc.setFont(undefined, 'bold');
+            doc.setFontSize(8);
+            doc.text('Date / Time', leftMargin + 1, y + 4);
+            doc.text('Spin #', leftMargin + col1 + 1, y + 4);
+            doc.text('Product Name', leftMargin + col1 + col2 + 1, y + 4);
+            doc.text('Price (LKR)', leftMargin + col1 + col2 + col3 + 1, y + 4);
+            
+            y += rowHeight;
+          }
+          
+          // Alternate row background
+          if(rowCount % 2 === 1){
+            doc.setFillColor(altRowBg[0], altRowBg[1], altRowBg[2]);
+            doc.rect(leftMargin, y, col1 + col2 + col3 + col4, rowHeight, 'F');
+          }
+          
+          // Text
+          doc.setTextColor(0, 0, 0);
+          doc.setFont(undefined, 'normal');
+          doc.setFontSize(7);
+          doc.text(row.date, leftMargin + 1, y + 4);
+          doc.text(row.spin, leftMargin + col1 + 1, y + 4);
+          doc.text(row.product, leftMargin + col1 + col2 + 1, y + 4, { maxWidth: col3 - 2 });
+          doc.text('LKR ' + row.price, leftMargin + col1 + col2 + col3 + 1, y + 4, { align: 'right' });
+          
+          y += rowHeight;
+          rowCount++;
+        });
+        
+        // Total row
+        doc.setFillColor(headerBg[0], headerBg[1], headerBg[2]);
+        doc.rect(leftMargin, y, col1 + col2 + col3 + col4, rowHeight, 'F');
+        
+        doc.setTextColor(headerText[0], headerText[1], headerText[2]);
+        doc.setFont(undefined, 'bold');
+        doc.setFontSize(8);
+        doc.text('TOTAL', leftMargin + 1, y + 4);
+        doc.text('LKR ' + totalValue.toFixed(2), leftMargin + col1 + col2 + col3 + 1, y + 4, { align: 'right' });
+        
+        y += rowHeight;
+        
+        // Draw all borders at once (no overlap)
+        doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+        doc.setLineWidth(0.3);
+        
+        var tableStartY = startY;
+        var tableEndY = y;
+        var tableWidth = col1 + col2 + col3 + col4;
+        
+        // Outer border
+        doc.rect(leftMargin, tableStartY, tableWidth, tableEndY - tableStartY);
+        
+        // Column dividers
+        doc.line(leftMargin + col1, tableStartY, leftMargin + col1, tableEndY);
+        doc.line(leftMargin + col1 + col2, tableStartY, leftMargin + col1 + col2, tableEndY);
+        doc.line(leftMargin + col1 + col2 + col3, tableStartY, leftMargin + col1 + col2 + col3, tableEndY);
+        
+        // Row dividers
+        var currentY = tableStartY + rowHeight;
+        for(var i = 0; i < tableData.length; i++){
+          if(currentY < tableEndY){
+            doc.line(leftMargin, currentY, leftMargin + tableWidth, currentY);
+            currentY += rowHeight;
+          }
+        }
+        
+        // Footer
+        doc.setTextColor(0, 0, 0);
+        doc.setFont(undefined, 'normal');
+        doc.setFontSize(7);
+        var footerY = pageHeight - 8;
+        doc.text('Generated on ' + new Date().toLocaleString(), leftMargin, footerY);
+        doc.text('Page 1', pageWidth - 20, footerY);
+      }
+      
+    }catch(e){
+      console.error('PDF generation error:', e);
+      alert('Error generating PDF: ' + e.message);
+    }
+  }
 
   document.getElementById('resetCountBtn').addEventListener('click', async function(){
     var ok = await showConfirm(
@@ -435,6 +744,41 @@ document.getElementById('schedSlot').addEventListener('focus', function(){
     await App.sb.from('wheel_settings').update({ spin_count: 0 }).eq('id', 1);
     App.state.settings.spin_count = 0;
     renderScheduleAdmin();
+  });
+
+  function renderMaxSpinsAdmin(){
+    var input = document.getElementById('maxSpinsInput');
+    if(input) input.value = (App.state.settings && App.state.settings.max_spins_per_device) || 1;
+    var rotInput = document.getElementById('spinRotationsInput');
+    if(rotInput) rotInput.value = (App.state.settings && App.state.settings.spin_rotations) || 6;
+  }
+  document.getElementById('saveMaxSpinsBtn').addEventListener('click', async function(){
+    var msg = document.getElementById('maxSpinsSavedMsg');
+    var val = parseInt(document.getElementById('maxSpinsInput').value, 10);
+    if(!val || val < 1){ msg.style.color = 'var(--danger)'; msg.textContent = 'Enter a whole number of 1 or more.'; return; }
+    if(!App.sb){ msg.style.color = 'var(--danger)'; msg.textContent = 'Supabase is not connected.'; return; }
+    var res = await App.sb.from('wheel_settings').update({ max_spins_per_device: val }).eq('id', 1);
+    if(res.error){
+      msg.style.color = 'var(--danger)'; msg.textContent = 'Save failed: ' + res.error.message;
+      return;
+    }
+    App.state.settings.max_spins_per_device = val;
+    msg.style.color = 'var(--ok)'; msg.textContent = 'Saved \u2713 - customer devices will pick this up on their next load.';
+    setTimeout(function(){ msg.textContent=''; }, 3500);
+  });
+  document.getElementById('saveSpinRotationsBtn').addEventListener('click', async function(){
+    var msg = document.getElementById('spinRotationsSavedMsg');
+    var val = parseInt(document.getElementById('spinRotationsInput').value, 10);
+    if(!val || val < 1){ msg.style.color = 'var(--danger)'; msg.textContent = 'Enter a whole number of 1 or more.'; return; }
+    if(!App.sb){ msg.style.color = 'var(--danger)'; msg.textContent = 'Supabase is not connected.'; return; }
+    var res = await App.sb.from('wheel_settings').update({ spin_rotations: val }).eq('id', 1);
+    if(res.error){
+      msg.style.color = 'var(--danger)'; msg.textContent = 'Save failed: ' + res.error.message;
+      return;
+    }
+    App.state.settings.spin_rotations = val;
+    msg.style.color = 'var(--ok)'; msg.textContent = 'Saved \u2713 - customer devices will pick this up on their next load.';
+    setTimeout(function(){ msg.textContent=''; }, 3500);
   });
 
   function renderSpecialCodeSettings(){
