@@ -27,6 +27,9 @@
       img.style.display = 'block';
       titleEl.innerHTML = '';
       titleEl.appendChild(img);
+
+      var hubLogo = document.getElementById('hubLogo');
+      if(hubLogo) hubLogo.src = b.logoUrl;
     } else if(b.companyName){
       titleEl.textContent = b.companyName;
     }
@@ -53,7 +56,10 @@
       }
     }
     await App.loadSlots();
+    await App.preloadSlotImages();
     App.renderWheel();
+    await App.syncDeviceSpinState();
+    App.refreshSpinAvailability();
   }
 
   boot();
